@@ -16,6 +16,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
+  [hidden]{display:none !important}
   :root{
     --bg:#F3F2F7; --surface:#FFFFFF; --ink:#1E1B2E; --muted:#625D72; --line:#DCD9E6; --soft:#F8F7FB;
     --accent:#5B2D8E; --accent-soft:#EEE7F7; --accent-dark:#46226F;
@@ -130,6 +131,11 @@
   .st-semresposta{background:var(--media-soft);color:var(--media)}
   .st-followup{background:#F7E7EF;color:var(--ia)}
   .st-resolvido{background:var(--baixa-soft);color:var(--baixa)}
+  .st-encerrado{background:#ECEBEF;color:#5E5A69}
+  .motivos{display:flex;flex-direction:column;gap:6px;margin-top:4px}
+  .motivos label{display:flex;gap:8px;align-items:flex-start;font-size:14px;line-height:1.35;cursor:pointer}
+  .motivos input{margin-top:3px;flex:0 0 auto}
+  .motivo-tag{display:inline-block;font-size:12px;color:#5E5A69;background:#ECEBEF;border-radius:6px;padding:1px 7px;margin-top:3px}
   .chev{color:var(--muted);font-size:18px}
   .late{color:var(--alta);font-weight:600;font-size:13px;background:var(--alta-soft);border-radius:6px;padding:2px 8px;white-space:nowrap}
   .row.overdue{background:#FFF9F8}
@@ -448,10 +454,17 @@
   <div class="toolbar">
     <div class="tabs" role="group" aria-label="Situação">
       <button data-tab="abertos" aria-pressed="true">Em aberto</button>
-      <button data-tab="resolvidos" aria-pressed="false">Resolvidos</button>
+      <button data-tab="encerrados" aria-pressed="false">Encerrados</button>
       <button data-tab="todos" aria-pressed="false">Todos</button>
     </div>
     <div class="spacer"></div>
+    <select id="fTipo" aria-label="Tipo de encerramento" hidden>
+      <option value="">Todos os encerramentos</option>
+      <option value="resolvido">Resolvidos</option>
+      <option value="encerrado">Encerrados sem contato</option>
+      <option value="encerrado:discorda_ia">Sem contato: discordo da avaliação da IA</option>
+      <option value="encerrado:sem_tratativa">Sem contato: nada a tratar com o cliente</option>
+    </select>
     <select id="fResp" aria-label="Responsável">
       <option value="">Todos os responsáveis</option>
       <option>Fernando</option><option>Raul</option>
@@ -643,8 +656,11 @@ const STATUS = {
   contatado:{nome:"Contatado",cls:"st-contatado"},
   semresposta:{nome:"Sem resposta",cls:"st-semresposta"},
   followup:{nome:"Follow-up agendado",cls:"st-followup"},
-  resolvido:{nome:"Resolvido",cls:"st-resolvido"}
+  resolvido:{nome:"Resolvido",cls:"st-resolvido"},
+  encerrado:{nome:"Encerrado sem contato",cls:"st-encerrado"}
 };
+const MOTIVO = {discorda_ia:"Discordo da avaliação da IA", sem_tratativa:"Avaliação procede, mas não há o que tratar com o cliente"};
+const fechado = st => st==="resolvido" || st==="encerrado";
 const PRIO = {alta:{nome:"Prioridade alta",peso:3},media:{nome:"Prioridade média",peso:2},baixa:{nome:"Prioridade baixa",peso:1}};
 
 /* ---------- Banco de dados (Supabase) ---------- */
@@ -654,7 +670,7 @@ const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 let db = null;
 try { db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY); } catch(_e) { db = null; }
 
-const DB2UI = {pendente:"pendente", contatado:"contatado", sem_resposta:"semresposta", follow_up_agendado:"followup", resolvido:"resolvido"};
+const DB2UI = {pendente:"pendente", contatado:"contatado", sem_resposta:"semresposta", follow_up_agendado:"followup", resolvido:"resolvido", encerrado_sem_contato:"encerrado"};
 const UI2DB = Object.fromEntries(Object.entries(DB2UI).map(([k,v])=>[v,k]));
 const FONTE = {avaliacao_ia:"ia", health_score:"hs", zendesk:"zd", follow_up:"fu"};
 
@@ -670,7 +686,7 @@ async function carregar(){
   const [u, cs] = await Promise.all([
     db.from("usuarios").select("id,nome,auth_id"),
     db.from("casos")
-      .select("id,status,prioridade,cliente:clientes(id,nome,contato,segmento,cliente_desde),responsavel:usuarios!casos_responsavel_id_fkey(nome),sinais(fonte,valor,descricao,comentario,ticket,ocorrido_em),contatos(id,acao,anotacao,retorno_em,registrado_em,status_anterior,desfeito_em,usuario:usuarios!contatos_usuario_id_fkey(nome),desfeito_usuario:usuarios!contatos_desfeito_por_fkey(nome))")
+      .select("id,status,prioridade,cliente:clientes(id,nome,contato,segmento,cliente_desde),responsavel:usuarios!casos_responsavel_id_fkey(nome),sinais(fonte,valor,descricao,comentario,ticket,ocorrido_em),contatos(id,acao,motivo,anotacao,retorno_em,registrado_em,status_anterior,desfeito_em,usuario:usuarios!contatos_usuario_id_fkey(nome),desfeito_usuario:usuarios!contatos_desfeito_por_fkey(nome))")
       .is("excluido_em", null)
   ]);
   if(u.error || cs.error){ carregando=false; erroCarga=(u.error||cs.error).message; renderAll(); return; }
@@ -683,12 +699,13 @@ async function carregar(){
       id: caso.id, codigo: caso.cliente.id, nome: caso.cliente.nome, contato: caso.cliente.contato || "",
       seg: caso.cliente.segmento || "", desde: (caso.cliente.cliente_desde || "").slice(0,7),
       resp: caso.responsavel ? caso.responsavel.nome : "", status: DB2UI[caso.status], prio: caso.prioridade,
+      motivo: caso.status==="encerrado_sem_contato" && ult ? (ult.motivo||"") : "",
       sinais: (caso.sinais||[]).map(s=>({t:FONTE[s.fonte], v:s.descricao||"", c:s.comentario||"", ticket:s.ticket||"",
         dias: Math.max(0, Math.floor((Date.now() - new Date(s.ocorrido_em)) / 86400000))})),
       ultimo: ult ? {data: ehHoje(ult.registrado_em) ? "Hoje" : fmtDM(ult.registrado_em), por: ult.usuario ? ult.usuario.nome : "",
         txt: ult.anotacao || STATUS[DB2UI[ult.acao]].nome} : null,
       ia: {resumo:"Sem leitura disponível para este cliente.", abordagem:"Sem sugestão."},
-      hist: hist.map(x=>({id:x.id, st:DB2UI[x.acao], por:x.usuario ? x.usuario.nome : "", obs:x.anotacao||"",
+      hist: hist.map(x=>({id:x.id, st:DB2UI[x.acao], motivo:x.motivo||"", por:x.usuario ? x.usuario.nome : "", obs:x.anotacao||"",
         data: x.retorno_em ? fmtDMdata(x.retorno_em) : "", quando: ehHoje(x.registrado_em) ? "hoje" : fmtDM(x.registrado_em),
         desfeito: !!x.desfeito_em, desfeitoPor: x.desfeito_usuario ? x.desfeito_usuario.nome : "",
         desfeitoQuando: x.desfeito_em ? (ehHoje(x.desfeito_em) ? "hoje" : fmtDM(x.desfeito_em)) : "",
@@ -702,7 +719,7 @@ async function carregar(){
 }
 
 /* ---------- Estado da tela ---------- */
-const state = {tab:"abertos", pagina:"", atalho:"", resp:"", prio:"", busca:"", aberto:null, escolha:null};
+const state = {tab:"abertos", tipo:"", pagina:"", atalho:"", resp:"", prio:"", busca:"", aberto:null, escolha:null};
 const $ = s => document.querySelector(s);
 
 function tempoDeCasa(desde){
@@ -723,8 +740,11 @@ function esc(t){ const d=document.createElement("div"); d.textContent=t; return 
 function filtrar(){
   const q = state.busca.trim().toLowerCase();
   return clientes.filter(c=>{
-    if(state.tab==="abertos" && c.status==="resolvido") return false;
-    if(state.tab==="resolvidos" && c.status!=="resolvido") return false;
+    if(state.tab==="abertos" && fechado(c.status)) return false;
+    if(state.tab==="encerrados"){
+      if(!fechado(c.status)) return false;
+      if(state.tipo){ const [st,mot] = state.tipo.split(":"); if(c.status!==st || (mot && c.motivo!==mot)) return false; }
+    }
     if(state.resp && c.resp!==state.resp) return false;
     if(state.prio && c.prio!==state.prio) return false;
     if(state.pagina && !c.sinais.some(s=>s.t===state.pagina)) return false;
@@ -739,7 +759,7 @@ function filtrar(){
 }
 
 function renderStats(){
-  const abertos = clientes.filter(c=>c.status!=="resolvido");
+  const abertos = clientes.filter(c=>!fechado(c.status));
   const altas = abertos.filter(c=>c.prio==="alta").length;
   const tratados = clientes.filter(c=>c.ultimo && c.ultimo.data==="Hoje").length;
   const atrasados = clientes.filter(atrasado).length;
@@ -749,7 +769,7 @@ function renderStats(){
 }
 
 function renderPages(){
-  const abertos = clientes.filter(c=>c.status!=="resolvido");
+  const abertos = clientes.filter(c=>!fechado(c.status));
   const n = k => k ? abertos.filter(c=>c.sinais.some(s=>s.t===k)).length : abertos.length;
   const pags = [["","Visão geral"],["hs","Health Score"],["ia","Avaliação IA"],["zd","Zendesk"],["fu","Follow-up"]];
   $("#pages").innerHTML = pags.map(([k,nome])=>
@@ -768,12 +788,12 @@ function renderList(){
     return;
   }
   $("#list").innerHTML = head + itens.map(c=>`
-    <button class="row ${c.status==="resolvido"?"done":""} ${atrasado(c)?"overdue":""} ${state.aberto===c.id?"selected":""}" data-id="${c.id}" role="listitem" aria-label="Abrir caso de ${esc(c.nome)}">
+    <button class="row ${fechado(c.status)?"done":""} ${atrasado(c)?"overdue":""} ${state.aberto===c.id?"selected":""}" data-id="${c.id}" role="listitem" aria-label="Abrir caso de ${esc(c.nome)}">
       <span class="bar ${c.prio}" title="${PRIO[c.prio].nome}"></span>
       <span class="c-cli"><span class="cli-name">${esc(c.nome)}</span><span class="cli-sub">${c.seg ? esc(c.seg)+", " : ""}cliente há ${tempoDeCasa(c.desde)}</span></span>
       <span class="signals">${ordenarSinais(c).map(s=>`<span class="sig ${s.t} ${s.t===state.pagina?"main":""}">${SIG[s.t].nome}</span>`).join("")}</span>
       <span class="c-meta"><span class="age">${atrasado(c) ? `<span class="late">Atrasado, ${espera(c)} dias</span>` : (c.status==="pendente" ? idade(espera(c)) : "em andamento")}</span><span class="owner">${c.resp}</span></span>
-      <span class="c-st"><span class="status ${STATUS[c.status].cls}">${STATUS[c.status].nome}</span></span>
+      <span class="c-st"><span class="status ${STATUS[c.status].cls}">${STATUS[c.status].nome}</span>${c.motivo?`<br><span class="motivo-tag">${c.motivo==="discorda_ia"?"Discordo da IA":"Nada a tratar"}</span>`:""}</span>
       <span class="chev" aria-hidden="true">›</span>
     </button>`).join("");
 }
@@ -792,6 +812,8 @@ function sairAtalho(){
 }
 function sincronizarControles(){
   $("#fResp").value = state.resp; $("#fPrio").value = state.prio; $("#fBusca").value = state.busca;
+  if(state.tab!=="encerrados") state.tipo = "";
+  $("#fTipo").value = state.tipo; $("#fTipo").hidden = state.tab!=="encerrados";
   document.querySelectorAll(".tabs button").forEach(x=>x.setAttribute("aria-pressed", x.dataset.tab===state.tab));
 }
 function renderAtalho(){
@@ -801,8 +823,8 @@ function renderAtalho(){
 }
 function renderAll(){ renderStats(); renderPages(); renderAtalho(); renderList(); }
 function limparFiltros(){
-  state.resp=""; state.prio=""; state.busca=""; state.atalho="";
-  $("#fResp").value=""; $("#fPrio").value=""; $("#fBusca").value="";
+  state.resp=""; state.prio=""; state.busca=""; state.atalho=""; state.tipo="";
+  $("#fResp").value=""; $("#fPrio").value=""; $("#fBusca").value=""; $("#fTipo").value="";
   renderAll();
 }
 
@@ -829,10 +851,10 @@ function renderDrawer(){
   const ultimo = c.ultimo
     ? `<dl class="kv"><dt>Data</dt><dd>${c.ultimo.data}</dd><dt>Feito por</dt><dd>${c.ultimo.por}</dd><dt>O que foi feito</dt><dd>${esc(c.ultimo.txt)}</dd></dl>`
     : `<p style="margin:0;color:var(--muted);font-size:14px">Nenhum contato registrado nos últimos 90 dias.</p>`;
-  const opcoes = ["contatado","semresposta","followup","resolvido"].map(k=>
-    `<button class="opt" data-st="${k}" aria-pressed="${state.escolha===k}">${STATUS[k].nome}</button>`).join("");
+  const opcoes = ["contatado","semresposta","followup","resolvido","encerrado"].map(k=>
+    `<button class="opt" data-st="${k}" aria-pressed="${state.escolha===k}">${k==="encerrado"?"Encerrar sem contato":STATUS[k].nome}</button>`).join("");
   const hist = c.hist.length
-    ? `<div class="d-sec"><h3>Histórico de contatos</h3><ul class="hist">${c.hist.map(h=>`<li class="${h.desfeito?"desfeito":""}"><strong>${STATUS[h.st].nome}</strong> por ${h.por}, ${h.quando}${h.data?`, retorno em ${h.data}`:""}<br><small>${esc(h.obs||"Sem observação")}</small>${h.desfeito?`<br><span class="undo-tag">Desfeito por ${h.desfeitoPor}, ${h.desfeitoQuando}</span>`:""}${h.podeDesfazer?`<div class="undo" data-undo="${h.id}"><button class="btn undo-btn" data-abrir-undo="${h.id}">Desfazer</button></div>`:""}</li>`).join("")}</ul></div>` : "";
+    ? `<div class="d-sec"><h3>Histórico de contatos</h3><ul class="hist">${c.hist.map(h=>`<li class="${h.desfeito?"desfeito":""}"><strong>${STATUS[h.st].nome}</strong>${h.motivo?` (${MOTIVO[h.motivo]})`:""} por ${h.por}, ${h.quando}${h.data?`, retorno em ${h.data}`:""}<br><small>${esc(h.obs||"Sem observação")}</small>${h.desfeito?`<br><span class="undo-tag">Desfeito por ${h.desfeitoPor}, ${h.desfeitoQuando}</span>`:""}${h.podeDesfazer?`<div class="undo" data-undo="${h.id}"><button class="btn undo-btn" data-abrir-undo="${h.id}">Desfazer</button></div>`:""}</li>`).join("")}</ul></div>` : "";
 
   $("#drawer").innerHTML = `
     <div class="d-head">
@@ -871,6 +893,10 @@ function renderDrawer(){
       <div class="d-sec">
         <h3>Registrar ação</h3>
         <div class="opts" role="group" aria-label="O que foi feito">${opcoes}</div>
+        <div class="field" id="campoMotivo" style="display:${state.escolha==="encerrado"?"flex":"none"}">
+          <span style="font-size:13px;font-weight:600">Motivo do encerramento</span>
+          <div class="motivos" role="radiogroup" aria-label="Motivo do encerramento">${Object.entries(MOTIVO).map(([k,t])=>`<label><input type="radio" name="motivo" value="${k}">${t}</label>`).join("")}</div>
+        </div>
         <div class="field" id="campoData" style="display:${state.escolha==="followup"?"flex":"none"}">
           <label for="dataFU">Data do retorno</label>
           <input type="date" id="dataFU">
@@ -896,6 +922,8 @@ function renderDrawer(){
     state.escolha = b.dataset.st;
     document.querySelectorAll(".opt").forEach(x=>x.setAttribute("aria-pressed", x===b));
     $("#campoData").style.display = state.escolha==="followup" ? "flex" : "none";
+    $("#campoMotivo").style.display = state.escolha==="encerrado" ? "flex" : "none";
+    $("#obs").placeholder = state.escolha==="encerrado" ? "Opcional: por que não é preciso falar com o cliente" : "O que foi conversado e combinado";
     $("#registrar").disabled = false;
   });
   /* Desfazer a ação mais recente: confirma quem está desfazendo e chama a função do banco */
@@ -922,6 +950,12 @@ function renderDrawer(){
       retorno = $("#dataFU").value;
       if(!retorno){ toast("Escolha a data do retorno para agendar o follow-up"); $("#dataFU").focus(); return; }
     }
+    let motivo = null;
+    if(state.escolha==="encerrado"){
+      const m = document.querySelector('input[name="motivo"]:checked');
+      if(!m){ toast("Escolha o motivo para encerrar sem contato"); return; }
+      motivo = m.value;
+    }
     const usuario = usuarios.find(u=>u.nome===resp);
     if(!usuario){ toast("Responsável não encontrado no banco"); return; }
     if(!meuUsuario){ toast("Sessão expirada. Entre novamente."); mostrarLogin(); return; }
@@ -933,12 +967,12 @@ function renderDrawer(){
         if(r1.error) throw r1.error;
       }
       /* 2. Grava a ação no histórico; o banco atualiza o status do caso sozinho */
-      const r2 = await db.from("contatos").insert({caso_id: c.id, usuario_id: meuUsuario.id, acao: UI2DB[state.escolha], anotacao: obs || null, retorno_em: retorno});
+      const r2 = await db.from("contatos").insert({caso_id: c.id, usuario_id: meuUsuario.id, acao: UI2DB[state.escolha], motivo, anotacao: obs || null, retorno_em: retorno});
       if(r2.error) throw r2.error;
-      const fim = state.escolha==="resolvido";
+      const fim = fechado(state.escolha);
       state.escolha = null;
       await carregar();
-      toast(fim ? "Ação salva no banco. Caso movido para Resolvidos" : "Ação salva no banco");
+      toast(fim ? "Ação salva no banco. Caso movido para Encerrados" : "Ação salva no banco");
     }catch(err){
       btn.disabled = false; btn.textContent = "Registrar ação";
       toast("Não foi possível salvar. " + erroAmigavel(err));
@@ -971,6 +1005,7 @@ let tt;
 function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(tt); tt=setTimeout(()=>t.classList.remove("show"), msg.length>60 ? 6000 : 2600); }
 
 /* ---------- Eventos ---------- */
+$("#fTipo").onchange = e=>{ state.tipo = e.target.value; renderAll(); };
 document.querySelectorAll(".tabs button").forEach(b=> b.onclick = ()=>{
   state.tab = b.dataset.tab; if(state.atalho==="alta") state.prio=""; state.atalho = "";
   sincronizarControles(); renderAll();
@@ -1579,7 +1614,7 @@ async function carregar(){
     tudo("demandas_jira", "*", "id"),
     db.from("status_jira").select("*").order("ordem"),
     tudo("clientes", "id,nome", "id"),
-    db.from("casos").select("cliente_id,status").is("excluido_em", null).neq("status","resolvido")
+    db.from("casos").select("cliente_id,status").is("excluido_em", null).not("status","in","(resolvido,encerrado_sem_contato)")
   ]);
   const f = [dm,st,cl,cs].find(r=>r.error);
   if(f){ erro = (window.erroAmigavel ? erroAmigavel(f.error) : f.error.message); renderDem(); renderAber(); return; }
