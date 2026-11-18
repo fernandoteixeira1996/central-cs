@@ -388,6 +388,11 @@
   .field select,.field input,.field textarea,select{max-width:100%;min-width:0}
   .field select,.field input,.field textarea{width:100%}
   .d-body,.trow,.kv,.w5{overflow-wrap:anywhere}
+  /* Motivo do encerramento: os rádios não seguem o estilo dos campos de texto */
+  .field .motivos input[type=radio]{width:18px;height:18px;min-width:18px;max-width:18px;padding:0;margin:1px 0 0;border:0;flex:0 0 18px;accent-color:var(--accent)}
+  .field .motivos label{display:flex;align-items:flex-start;gap:10px;width:100%;border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--surface);color:var(--ink);font-size:14px;line-height:1.35;cursor:pointer}
+  .field .motivos label span{flex:1;min-width:0}
+  .field .motivos label:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}
 </style>
 </head>
 <body>
@@ -895,7 +900,7 @@ function renderDrawer(){
         <div class="opts" role="group" aria-label="O que foi feito">${opcoes}</div>
         <div class="field" id="campoMotivo" style="display:${state.escolha==="encerrado"?"flex":"none"}">
           <span style="font-size:13px;font-weight:600">Motivo do encerramento</span>
-          <div class="motivos" role="radiogroup" aria-label="Motivo do encerramento">${Object.entries(MOTIVO).map(([k,t])=>`<label><input type="radio" name="motivo" value="${k}">${t}</label>`).join("")}</div>
+          <div class="motivos" role="radiogroup" aria-label="Motivo do encerramento">${Object.entries(MOTIVO).map(([k,t])=>`<label><input type="radio" name="motivo" value="${k}"><span>${t}</span></label>`).join("")}</div>
         </div>
         <div class="field" id="campoData" style="display:${state.escolha==="followup"?"flex":"none"}">
           <label for="dataFU">Data do retorno</label>
