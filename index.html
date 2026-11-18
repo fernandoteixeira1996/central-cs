@@ -473,7 +473,7 @@
       <option value="">Todas as prioridades</option>
       <option value="alta">Alta</option><option value="media">Média</option><option value="baixa">Baixa</option>
     </select>
-    <input id="fBusca" type="search" placeholder="Buscar cliente ou ticket" aria-label="Buscar cliente ou ticket">
+    <input id="fBusca" type="search" placeholder="Buscar cliente, código ou ticket" aria-label="Buscar cliente, código ou ticket">
   </div>
 
   <div id="atalhoInfo"></div>
@@ -751,7 +751,7 @@ function filtrar(){
     if(state.atalho==="atrasados" && !atrasado(c)) return false;
     if(state.atalho==="tratados" && !(c.ultimo && c.ultimo.data==="Hoje")) return false;
     if(q){
-      const alvo = (c.nome+" "+c.contato+" "+c.sinais.map(s=>s.ticket).join(" ")).toLowerCase();
+      const alvo = (c.codigo+" "+c.nome+" "+c.contato+" "+c.sinais.map(s=>s.ticket).join(" ")).toLowerCase();
       if(!alvo.includes(q)) return false;
     }
     return true;
@@ -790,7 +790,7 @@ function renderList(){
   $("#list").innerHTML = head + itens.map(c=>`
     <button class="row ${fechado(c.status)?"done":""} ${atrasado(c)?"overdue":""} ${state.aberto===c.id?"selected":""}" data-id="${c.id}" role="listitem" aria-label="Abrir caso de ${esc(c.nome)}">
       <span class="bar ${c.prio}" title="${PRIO[c.prio].nome}"></span>
-      <span class="c-cli"><span class="cli-name">${esc(c.nome)}</span><span class="cli-sub">${c.seg ? esc(c.seg)+", " : ""}cliente há ${tempoDeCasa(c.desde)}</span></span>
+      <span class="c-cli"><span class="cli-name">${esc(c.nome)}</span><span class="cli-sub">Código ${esc(String(c.codigo))}, ${c.seg ? esc(c.seg)+", " : ""}cliente há ${tempoDeCasa(c.desde)}</span></span>
       <span class="signals">${ordenarSinais(c).map(s=>`<span class="sig ${s.t} ${s.t===state.pagina?"main":""}">${SIG[s.t].nome}</span>`).join("")}</span>
       <span class="c-meta"><span class="age">${atrasado(c) ? `<span class="late">Atrasado, ${espera(c)} dias</span>` : (c.status==="pendente" ? idade(espera(c)) : "em andamento")}</span><span class="owner">${c.resp}</span></span>
       <span class="c-st"><span class="status ${STATUS[c.status].cls}">${STATUS[c.status].nome}</span>${c.motivo?`<br><span class="motivo-tag">${c.motivo==="discorda_ia"?"Discordo da IA":"Nada a tratar"}</span>`:""}</span>
@@ -860,7 +860,7 @@ function renderDrawer(){
     <div class="d-head">
       <div>
         <h2 id="dName">${esc(c.nome)}</h2>
-        <div class="cli-sub">${[esc(c.contato), esc(c.seg)].filter(Boolean).join(", ")}${(c.contato||c.seg) ? ", " : ""}cliente há ${tempoDeCasa(c.desde)}</div>
+        <div class="cli-sub">Código ${esc(String(c.codigo))}, ${[esc(c.contato), esc(c.seg)].filter(Boolean).join(", ")}${(c.contato||c.seg) ? ", " : ""}cliente há ${tempoDeCasa(c.desde)}</div>
         <div class="d-badges"><span class="prio ${c.prio}">${PRIO[c.prio].nome}</span><span class="status ${STATUS[c.status].cls}">${STATUS[c.status].nome}</span></div>
         ${atrasado(c)?`<div class="late-box">Aguardando contato há ${espera(c)} dias. O prazo é de ${PRAZO} dias.</div>`:""}
       </div>
